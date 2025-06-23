@@ -1,15 +1,19 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"flag"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
+	"sync"
 	"text/template"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
 
@@ -75,7 +79,77 @@ type TodoistCompletedResponse struct {
 	Items []TodoistItem `json:"items"`
 }
 
+// CacheEntry holds cached data and its expiration
+type CacheEntry struct {
+	Response []byte
+	Expires  time.Time
+	Status   int
+	Header   http.Header
+}
+
+// CachingHTTPClient wraps http.Client and caches responses for 60 seconds
+type CachingHTTPClient struct {
+	Client *http.Client
+	Cache  map[string]CacheEntry
+	Mutex  sync.Mutex
+	TTL    time.Duration
+}
+
+func NewCachingHTTPClient(ttl time.Duration) *CachingHTTPClient {
+	return &CachingHTTPClient{
+		Client: &http.Client{},
+		Cache:  make(map[string]CacheEntry),
+		TTL:    ttl,
+	}
+}
+
+func (c *CachingHTTPClient) Do(req *http.Request) (*http.Response, error) {
+	cacheKey := req.Method + ":" + req.URL.String()
+	c.Mutex.Lock()
+	entry, found := c.Cache[cacheKey]
+	if found && time.Now().Before(entry.Expires) {
+		c.Mutex.Unlock()
+		return &http.Response{
+			StatusCode: entry.Status,
+			Body:       ioutil.NopCloser(bytes.NewReader(entry.Response)),
+			Header:     entry.Header.Clone(),
+		}, nil
+	}
+	c.Mutex.Unlock()
+
+	resp, err := c.Client.Do(req)
+	if err != nil {
+		return resp, err
+	}
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	c.Mutex.Lock()
+	c.Cache[cacheKey] = CacheEntry{
+		Response: body,
+		Expires:  time.Now().Add(c.TTL),
+		Status:   resp.StatusCode,
+		Header:   resp.Header.Clone(),
+	}
+	c.Mutex.Unlock()
+
+	return &http.Response{
+		StatusCode: resp.StatusCode,
+		Body:       ioutil.NopCloser(bytes.NewReader(body)),
+		Header:     resp.Header.Clone(),
+	}, nil
+}
+
+var cachingClient = NewCachingHTTPClient(60 * time.Second)
+
 func main() {
+	// Parse port from command-line flag
+	port := flag.String("port", "8080", "HTTP server port")
+	flag.Parse()
+
 	// Load .env file
 	err := godotenv.Load()
 	if err != nil {
@@ -87,65 +161,39 @@ func main() {
 		log.Fatal("TODOIST_API_TOKEN not set in environment")
 	}
 
-	filterQuery := "today & #Home 🏡"
+	r := gin.Default()
+	r.GET("/", func(c *gin.Context) {
+		filterQuery := "today & #Home 🏡"
+		filteredTasks := getFilteredTasks(token, filterQuery)
+		completedToday := getCompletedTasks(token)
 
-	// Build the correct API v1 URL for getting tasks by filter query string
-	url := "https://api.todoist.com/api/v1/tasks/filter?query=" + url.QueryEscape(filterQuery)
+		tmplBytes, err := ioutil.ReadFile("src/index.html")
+		if err != nil {
+			c.String(500, "Failed to read template: %v", err)
+			return
+		}
+		tmpl, err := template.New("index").Parse(string(tmplBytes))
+		if err != nil {
+			c.String(500, "Failed to parse template: %v", err)
+			return
+		}
 
-	// Fetch tasks from Todoist API
-	client := &http.Client{}
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		log.Fatal(err)
-	}
-	req.Header.Add("Authorization", "Bearer "+token)
+		data := struct {
+			FilteredTasks  []TodoistItem
+			CompletedToday []TodoistItem
+		}{
+			FilteredTasks:  filteredTasks,
+			CompletedToday: completedToday,
+		}
 
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer resp.Body.Close()
+		c.Header("Content-Type", "text/html; charset=utf-8")
+		err = tmpl.Execute(c.Writer, data)
+		if err != nil {
+			c.String(500, "Failed to execute template: %v", err)
+		}
+	})
 
-	if resp.StatusCode != 200 {
-		log.Fatalf("Failed to fetch tasks: %s", resp.Status)
-	}
-
-	var respData TodoistResponse
-	if err := json.NewDecoder(resp.Body).Decode(&respData); err != nil {
-		log.Fatal(err)
-	}
-
-	// Fetch completed tasks for today
-	completedToday := fetchCompletedTasks(token)
-
-	// Load HTML template from src/index.html
-	tmplBytes, err := ioutil.ReadFile("src/index.html")
-	if err != nil {
-		log.Fatalf("Failed to read template: %v", err)
-	}
-	tmpl, err := template.New("index").Parse(string(tmplBytes))
-	if err != nil {
-		log.Fatalf("Failed to parse template: %v", err)
-	}
-
-	// Prepare data for template
-	data := struct {
-		FilteredTasks  []TodoistItem
-		CompletedToday []TodoistItem
-	}{
-		FilteredTasks:  respData.Results,
-		CompletedToday: completedToday,
-	}
-
-	// Render template to dist/index.html
-	f, err := os.Create("dist/index.html")
-	if err != nil {
-		log.Fatalf("Failed to create output file: %v", err)
-	}
-	defer f.Close()
-	if err := tmpl.Execute(f, data); err != nil {
-		log.Fatalf("Failed to execute template: %v", err)
-	}
+	r.Run(":" + *port)
 }
 
 // urlQueryEscape escapes a string for use in a URL query.
@@ -153,31 +201,49 @@ func urlQueryEscape(s string) string {
 	return url.QueryEscape(s)
 }
 
-// fetchCompletedTasks returns a slice of TodoistItem completed today
-func fetchCompletedTasks(token string) []TodoistItem {
-	url := "https://api.todoist.com/api/v1/tasks/completed?project_id=6WQPPXjR3wvf9cjJ"
-	client := &http.Client{}
+// getFilteredTasks fetches filtered tasks using the caching client
+func getFilteredTasks(token, filterQuery string) []TodoistItem {
+	url := "https://api.todoist.com/api/v1/tasks/filter?query=" + url.QueryEscape(filterQuery)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		log.Fatal(err)
+		return nil
 	}
 	req.Header.Add("Authorization", "Bearer "+token)
-
-	resp, err := client.Do(req)
+	resp, err := cachingClient.Do(req)
 	if err != nil {
-		log.Fatal(err)
+		return nil
 	}
 	defer resp.Body.Close()
-
 	if resp.StatusCode != 200 {
-		log.Fatalf("Failed to fetch completed tasks: %s", resp.Status)
+		return nil
 	}
+	var respData TodoistResponse
+	if err := json.NewDecoder(resp.Body).Decode(&respData); err != nil {
+		return nil
+	}
+	return respData.Results
+}
 
+// getCompletedTasks fetches completed tasks for today using the caching client
+func getCompletedTasks(token string) []TodoistItem {
+	url := "https://api.todoist.com/api/v1/tasks/completed?project_id=6WQPPXjR3wvf9cjJ"
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil
+	}
+	req.Header.Add("Authorization", "Bearer "+token)
+	resp, err := cachingClient.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil
+	}
 	var respData TodoistCompletedResponse
 	if err := json.NewDecoder(resp.Body).Decode(&respData); err != nil {
-		log.Fatal(err)
+		return nil
 	}
-
 	today := time.Now().Format("2006-01-02")
 	var completedToday []TodoistItem
 	for _, item := range respData.Items {

@@ -2,9 +2,10 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"flag"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -13,6 +14,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/chromedp/chromedp"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
@@ -88,10 +90,11 @@ type CacheEntry struct {
 }
 
 // CachingHTTPClient wraps http.Client and caches responses for 60 seconds
+// Use sync.RWMutex for concurrent reads
 type CachingHTTPClient struct {
 	Client *http.Client
 	Cache  map[string]CacheEntry
-	Mutex  sync.Mutex
+	Mutex  sync.RWMutex
 	TTL    time.Duration
 }
 
@@ -105,24 +108,23 @@ func NewCachingHTTPClient(ttl time.Duration) *CachingHTTPClient {
 
 func (c *CachingHTTPClient) Do(req *http.Request) (*http.Response, error) {
 	cacheKey := req.Method + ":" + req.URL.String()
-	c.Mutex.Lock()
+	c.Mutex.RLock()
 	entry, found := c.Cache[cacheKey]
+	c.Mutex.RUnlock()
 	if found && time.Now().Before(entry.Expires) {
-		c.Mutex.Unlock()
 		return &http.Response{
 			StatusCode: entry.Status,
-			Body:       ioutil.NopCloser(bytes.NewReader(entry.Response)),
+			Body:       io.NopCloser(bytes.NewReader(entry.Response)),
 			Header:     entry.Header.Clone(),
 		}, nil
 	}
-	c.Mutex.Unlock()
 
 	resp, err := c.Client.Do(req)
 	if err != nil {
 		return resp, err
 	}
 	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -138,43 +140,55 @@ func (c *CachingHTTPClient) Do(req *http.Request) (*http.Response, error) {
 
 	return &http.Response{
 		StatusCode: resp.StatusCode,
-		Body:       ioutil.NopCloser(bytes.NewReader(body)),
+		Body:       io.NopCloser(bytes.NewReader(body)),
 		Header:     resp.Header.Clone(),
 	}, nil
 }
 
-var cachingClient = NewCachingHTTPClient(60 * time.Second)
+const (
+	defaultPort      = "8080"
+	cacheTTL         = 60 * time.Second
+	templateFilePath = "src/index.html"
+)
+
+var cachingClient = NewCachingHTTPClient(cacheTTL)
 
 func main() {
-	// Parse port from command-line flag
-	port := flag.String("port", "8080", "HTTP server port")
+	port := flag.String("port", defaultPort, "HTTP server port")
 	flag.Parse()
 
-	// Load .env file
-	err := godotenv.Load()
-	if err != nil {
-		log.Fatal("Error loading .env file")
+	if err := godotenv.Load(); err != nil {
+		log.Println("Warning: .env file not found")
 	}
 
 	token := os.Getenv("TODOIST_API_TOKEN")
 	if token == "" {
 		log.Fatal("TODOIST_API_TOKEN not set in environment")
+		os.Exit(1)
+	}
+
+	tmplBytes, err := os.ReadFile(templateFilePath)
+	if err != nil {
+		log.Fatalf("Failed to read template: %v", err)
+		os.Exit(1)
+	}
+	tmpl, err := template.New("index").Parse(string(tmplBytes))
+	if err != nil {
+		log.Fatalf("Failed to parse template: %v", err)
+		os.Exit(1)
 	}
 
 	r := gin.Default()
 	r.GET("/", func(c *gin.Context) {
 		filterQuery := "today & #Home 🏡"
-		filteredTasks := getFilteredTasks(token, filterQuery)
-		completedToday := getCompletedTasks(token)
-
-		tmplBytes, err := ioutil.ReadFile("src/index.html")
+		filteredTasks, err := getFilteredTasks(token, filterQuery)
 		if err != nil {
-			c.String(500, "Failed to read template: %v", err)
+			c.String(http.StatusInternalServerError, "Failed to get filtered tasks: %v", err)
 			return
 		}
-		tmpl, err := template.New("index").Parse(string(tmplBytes))
+		completedToday, err := getCompletedTasks(token)
 		if err != nil {
-			c.String(500, "Failed to parse template: %v", err)
+			c.String(http.StatusInternalServerError, "Failed to get completed tasks: %v", err)
 			return
 		}
 
@@ -187,62 +201,75 @@ func main() {
 		}
 
 		c.Header("Content-Type", "text/html; charset=utf-8")
-		err = tmpl.Execute(c.Writer, data)
-		if err != nil {
-			c.String(500, "Failed to execute template: %v", err)
+		if err := tmpl.Execute(c.Writer, data); err != nil {
+			c.String(http.StatusInternalServerError, "Failed to execute template: %v", err)
 		}
+	})
+
+	r.GET("/image", func(c *gin.Context) {
+		ctx, cancel := chromedp.NewContext(context.Background())
+		defer cancel()
+
+		var pngBuf []byte
+		url := "http://localhost:" + *port + "/"
+		if err := chromedp.Run(ctx,
+			chromedp.Navigate(url),
+			chromedp.EmulateViewport(800, 600),
+			chromedp.CaptureScreenshot(&pngBuf),
+		); err != nil {
+			c.String(http.StatusInternalServerError, "Failed to render image: %v", err)
+			return
+		}
+
+		c.Header("Content-Type", "image/png")
+		c.Writer.Write(pngBuf)
 	})
 
 	r.Run(":" + *port)
 }
 
-// urlQueryEscape escapes a string for use in a URL query.
-func urlQueryEscape(s string) string {
-	return url.QueryEscape(s)
-}
-
 // getFilteredTasks fetches filtered tasks using the caching client
-func getFilteredTasks(token, filterQuery string) []TodoistItem {
+func getFilteredTasks(token, filterQuery string) ([]TodoistItem, error) {
 	url := "https://api.todoist.com/api/v1/tasks/filter?query=" + url.QueryEscape(filterQuery)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	req.Header.Add("Authorization", "Bearer "+token)
 	resp, err := cachingClient.Do(req)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return nil
+	if resp.StatusCode != http.StatusOK {
+		return nil, nil
 	}
 	var respData TodoistResponse
 	if err := json.NewDecoder(resp.Body).Decode(&respData); err != nil {
-		return nil
+		return nil, err
 	}
-	return respData.Results
+	return respData.Results, nil
 }
 
 // getCompletedTasks fetches completed tasks for today using the caching client
-func getCompletedTasks(token string) []TodoistItem {
+func getCompletedTasks(token string) ([]TodoistItem, error) {
 	url := "https://api.todoist.com/api/v1/tasks/completed?project_id=6WQPPXjR3wvf9cjJ"
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	req.Header.Add("Authorization", "Bearer "+token)
 	resp, err := cachingClient.Do(req)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return nil
+	if resp.StatusCode != http.StatusOK {
+		return nil, nil
 	}
 	var respData TodoistCompletedResponse
 	if err := json.NewDecoder(resp.Body).Decode(&respData); err != nil {
-		return nil
+		return nil, err
 	}
 	today := time.Now().Format("2006-01-02")
 	var completedToday []TodoistItem
@@ -255,5 +282,5 @@ func getCompletedTasks(token string) []TodoistItem {
 			}
 		}
 	}
-	return completedToday
+	return completedToday, nil
 }

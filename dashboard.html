@@ -17,7 +17,7 @@
       background: #fff;
       color: #000;
       font-family: verdana, sans-serif;
-      font-size: 13px;
+      font-size: 14px;
       -webkit-font-smoothing: none;
       -webkit-text-stroke: 0.2px;
     }
@@ -105,46 +105,49 @@
         <li style="text-decoration: line-through;">Plan weekend trip</li>
       </ul>
     </div>
-    <!-- Energy Panel -->
-    <div class="panel" style="flex: 1 1 0;">
-      <h2>Energy Usage (24h)</h2>
-      <table class="energy-table">
-        <tr>
-          <th></th>
-          <th>Unit</th>
-          <th>Usage</th>
-          <th>Cost</th>
-          <th>Prev 24h</th>
-        </tr>
-        <tr>
-          <td>Electricity</td>
-          <td>kWh</td>
-          <td>12.4</td>
-          <td>£3.10</td>
-          <td class="comparison">+0.8 kWh</td>
-        </tr>
-        <tr>
-          <td>Gas</td>
-          <td>m³</td>
-          <td>6.2</td>
-          <td>£2.05</td>
-          <td class="comparison">-0.3 m³</td>
-        </tr>
-      </table>
-      <div class="comparison">Compared to previous 24h period.</div>
-    </div>
-    <!-- Weather Panel -->
-    <div class="panel" style="flex: 1 1 0;">
-      <h2>Weather (Next 24h)</h2>
-      <div class="weather-forecast">
-        <strong>Forecast:</strong> Partly cloudy, light breeze<br>
-        <strong>High/Low:</strong> 19°C / 11°C<br>
+    <!-- Right Side: Stack Energy + Weather Panels -->
+    <div style="display: flex; flex-direction: column; flex: 1 1 0; gap: 16px; min-width: 0; min-height: 0;">
+      <!-- Energy Panel -->
+      <div class="panel">
+        <h2>Energy Usage (24h)</h2>
+        <table class="energy-table">
+          <tr>
+            <th></th>
+            <th>Unit</th>
+            <th>Usage</th>
+            <th>Cost</th>
+            <th>Prev 24h</th>
+          </tr>
+          <tr>
+            <td>Electricity</td>
+            <td>kWh</td>
+            <td>12.4</td>
+            <td>£3.10</td>
+            <td class="comparison">+0.8 kWh</td>
+          </tr>
+          <tr>
+            <td>Gas</td>
+            <td>m³</td>
+            <td>6.2</td>
+            <td>£2.05</td>
+            <td class="comparison">-0.3 m³</td>
+          </tr>
+        </table>
+        <div class="comparison">Compared to previous 24h period.</div>
       </div>
-      <table class="weather-table">
-        <tr><th>Humidity</th><td>62%</td></tr>
-        <tr><th>Pollen</th><td>Moderate</td></tr>
-        <tr><th>Pollution</th><td>Low</td></tr>
-      </table>
+      <!-- Weather Panel -->
+      <div class="panel">
+        <h2>Weather (Next 24h)</h2>
+        <div class="weather-forecast">
+          <strong>Forecast:</strong> Partly cloudy, light breeze<br>
+          <strong>High/Low:</strong> 19°C / 11°C<br>
+        </div>
+        <table class="weather-table">
+          <tr><th>Humidity</th><td>62%</td></tr>
+          <tr><th>Pollen</th><td>Moderate</td></tr>
+          <tr><th>Pollution</th><td>Low</td></tr>
+        </table>
+      </div>
     </div>
   </div>
 </body>

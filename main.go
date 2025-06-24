@@ -14,6 +14,10 @@ import (
 	"text/template"
 	"time"
 
+	"image"
+	"image/color"
+	"image/png"
+
 	"github.com/chromedp/chromedp"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
@@ -221,8 +225,18 @@ func main() {
 			return
 		}
 
+		// Rotate the PNG by 90 degrees
+		rotated, err := rotatePNG90(pngBuf)
+		if err != nil {
+			c.String(http.StatusInternalServerError, "Failed to rotate image: %v", err)
+			return
+		}
+
+		// Convert to grayscale
+		gray := toGrayscale(rotated)
+
 		c.Header("Content-Type", "image/png")
-		c.Writer.Write(pngBuf)
+		c.Writer.Write(gray)
 	})
 
 	r.Run(":" + *port)
@@ -283,4 +297,76 @@ func getCompletedTasks(token string) ([]TodoistItem, error) {
 		}
 	}
 	return completedToday, nil
+}
+
+// rotatePNG90 rotates a PNG image buffer by 90 degrees clockwise and returns the new PNG buffer
+func rotatePNG90(pngBuf []byte) ([]byte, error) {
+	img, err := png.Decode(bytes.NewReader(pngBuf))
+	if err != nil {
+		return nil, err
+	}
+	b := img.Bounds()
+	rotated := image.NewRGBA(image.Rect(0, 0, b.Dy(), b.Dx()))
+	for x := b.Min.X; x < b.Max.X; x++ {
+		for y := b.Min.Y; y < b.Max.Y; y++ {
+			rotated.Set(b.Max.Y-y-1, x, img.At(x, y))
+		}
+	}
+	var out bytes.Buffer
+	if err := png.Encode(&out, rotated); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
+}
+
+// toGrayscale takes a PNG buffer, decodes it, and returns a new PNG buffer in grayscale
+func toGrayscale(pngBuf []byte) []byte {
+	img, err := png.Decode(bytes.NewReader(pngBuf))
+	if err != nil {
+		return pngBuf // fallback
+	}
+	b := img.Bounds()
+	grayImg := image.NewGray(b)
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			grayImg.Set(x, y, color.GrayModel.Convert(img.At(x, y)))
+		}
+	}
+	var out bytes.Buffer
+	_ = png.Encode(&out, grayImg)
+	return out.Bytes()
+}
+
+// sharpen takes a PNG buffer, decodes it, applies a sharpening kernel, and returns a new PNG buffer
+func sharpen(pngBuf []byte) []byte {
+	img, err := png.Decode(bytes.NewReader(pngBuf))
+	if err != nil {
+		return pngBuf // fallback
+	}
+	b := img.Bounds()
+	sharp := image.NewGray(b)
+	// Sharpen kernel: [ 0 -1  0; -1 5 -1; 0 -1 0 ]
+	dx := []int{-1, 0, 1, -1, 0, 1, -1, 0, 1}
+	dy := []int{-1, -1, -1, 0, 0, 0, 1, 1, 1}
+	kernel := []int{0, -1, 0, -1, 5, -1, 0, -1, 0}
+	for y := b.Min.Y + 1; y < b.Max.Y-1; y++ {
+		for x := b.Min.X + 1; x < b.Max.X-1; x++ {
+			sum := 0
+			for k := 0; k < 9; k++ {
+				xk := x + dx[k]
+				yk := y + dy[k]
+				c := color.GrayModel.Convert(img.At(xk, yk)).(color.Gray)
+				sum += int(c.Y) * kernel[k]
+			}
+			if sum < 0 {
+				sum = 0
+			} else if sum > 255 {
+				sum = 255
+			}
+			sharp.SetGray(x, y, color.Gray{Y: uint8(sum)})
+		}
+	}
+	var out bytes.Buffer
+	_ = png.Encode(&out, sharp)
+	return out.Bytes()
 }

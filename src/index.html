@@ -1,44 +1,148 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta http-equiv="refresh" content="900">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>To Do Dashboard</title>
-    <style>
-      * {
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=800, height=600, initial-scale=1.0">
+  <title>Home Dashboard (E-Ink)</title>
+  <style>
+    * {
         margin: 0;
         padding: 0;
-        box-sizing: border-box;
-        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-          Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue",
-          sans-serif;
-      }
-
-      li {
-        padding: 0.75rem 1rem;
-        border-bottom: 1px solid #111;
-      }
-
-      li:nth-child(even) {
-        background-color: #f0f0f0;
-      }
-
-      ul + ul li {
-        text-decoration: line-through;
-      }
-    </style>
-  </head>
-  <body>
-    <ul>
-      {{range .FilteredTasks}}
-      <li>{{.Content}}</li>
-      {{end}}
-    </ul>
-    <ul>
-      {{range .CompletedToday}}
-      <li>{{.Content}}</li>
-      {{end}}
-    </ul>
-  </body>
-</html>
+    }
+    html, body {
+      width: 800px;
+      height: 600px;
+      margin: 0;
+      padding: 0;
+      background: #fff;
+      color: #000;
+      font-family: verdana, sans-serif;
+      font-size: 14px;
+      -webkit-font-smoothing: none;
+      -webkit-text-stroke: 0.2px;
+    }
+    .container {
+      display: flex;
+      flex-direction: row;
+      width: 100%;
+      height: 100%;
+      box-sizing: border-box;
+      padding: 16px;
+      gap: 16px;
+    }
+    .panel {
+      background: #fff;
+      border: 2px solid #000;
+      border-radius: 8px;
+      padding: 0;
+      flex: 1 1 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      min-width: 0;
+      min-height: 0;
+    }
+    .panel h2 {
+      margin-top: 0;
+      font-size: 1.2em;
+      border-bottom: 2px solid #000;
+      padding: .5rem 1rem;
+      font-weight: normal;
+    }
+    ul.todo-list {
+      list-style: none;
+    }
+    ul.todo-list li {
+      margin-bottom: 0;
+      padding: .25rem .5rem;
+      line-height: 2;
+      border-bottom: 1px solid #000;
+    }
+    .energy-table, .weather-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 8px;
+    }
+    .energy-table th, .energy-table td, .weather-table th, .weather-table td {
+      border: 1px solid #000;
+      padding: 4px 8px;
+      text-align: left;
+      font-size: 0.95em;
+    }
+    .energy-table th, .weather-table th {
+      background: #eee;
+    }
+    .comparison {
+      font-size: 0.9em;
+      color: #333;
+    }
+    .weather-forecast {
+      font-size: 0.95em;
+      margin-bottom: 8px;
+    }
+    .weather-details {
+      font-size: 0.95em;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Todo List Panel -->
+    <div class="panel" style="flex: 1.2 1 0;">
+      <h2>Todo List</h2>
+      <ul class="todo-list">
+        {{range .FilteredTasks}}
+          <li>{{.Content}}</li>
+        {{end}}
+        {{range .CompletedToday}}
+          <li style="text-decoration: line-through;">{{.Content}}</li>
+        {{end}}
+      </ul>
+    </div>
+    <!-- Right Side: Stack Energy + Weather Panels -->
+    <div style="display: flex; flex-direction: column; flex: 1 1 0; gap: 16px; min-width: 0; min-height: 0;">
+      <!-- Energy Panel -->
+      <div class="panel">
+        <h2>Energy Usage (24h)</h2>
+        <table class="energy-table">
+          <tr>
+            <th></th>
+            <th>Unit</th>
+            <th>Usage</th>
+            <th>Cost</th>
+            <th>Prev 24h</th>
+          </tr>
+          <tr>
+            <td>Electricity</td>
+            <td>kWh</td>
+            <td>9.0</td>
+            <td>€3.27</td>
+            <td class="comparison">📉</td>
+          </tr>
+          <tr>
+            <td>Gas</td>
+            <td>m³</td>
+            <td>0.5</td>
+            <td>€0.72</td>
+            <td class="comparison">📉</td>
+          </tr>
+        </table>
+        <div class="comparison">Compared to previous 24h period.</div>
+      </div>
+      <!-- Weather Panel -->
+      <div class="panel">
+        <h2>Weather (Next 24h)</h2>
+        <div class="weather-forecast">
+          <strong>Forecast:</strong> Partly cloudy, light breeze<br>
+          <strong>High/Low:</strong> 19°C / 11°C<br>
+        </div>
+        <table class="weather-table">
+          <tr><th>Humidity</th><td>62%</td></tr>
+          <tr><th>Pollen</th><td>Moderate</td></tr>
+          <tr><th>Pollution</th><td>Low</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+</body>
+</html> 

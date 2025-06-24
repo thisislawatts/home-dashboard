@@ -20,6 +20,7 @@ import (
 
 	"github.com/chromedp/chromedp"
 	"github.com/gin-gonic/gin"
+	"github.com/h2non/bimg"
 	"github.com/joho/godotenv"
 )
 
@@ -225,15 +226,18 @@ func main() {
 			return
 		}
 
-		// Rotate the PNG by 90 degrees
-		rotated, err := rotatePNG90(pngBuf)
+		// Use bimg for rotate, grayscale, and sharpen
+		rotated, err := bimg.NewImage(pngBuf).Rotate(90)
 		if err != nil {
 			c.String(http.StatusInternalServerError, "Failed to rotate image: %v", err)
 			return
 		}
 
-		// Convert to grayscale
-		gray := toGrayscale(rotated)
+		gray, err := bimg.NewImage(rotated).Colourspace(bimg.InterpretationBW)
+		if err != nil {
+			c.String(http.StatusInternalServerError, "Failed to grayscale image: %v", err)
+			return
+		}
 
 		c.Header("Content-Type", "image/png")
 		c.Writer.Write(gray)

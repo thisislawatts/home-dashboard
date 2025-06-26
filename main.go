@@ -6,9 +6,11 @@ import (
 	"flag"
 	"image"
 	"image/png"
+	"io"
 	"log"
 	"net/http"
 	"os"
+	"runtime"
 	"text/template"
 	"time"
 
@@ -91,6 +93,11 @@ func main() {
 	})
 
 	r.GET("/image", func(c *gin.Context) {
+		// Log memory usage at start
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+		log.Printf("Memory before request: Alloc=%d MiB, Sys=%d MiB", m.Alloc/1024/1024, m.Sys/1024/1024)
+
 		// Chrome flags optimized for Synology NAS
 		allocCtx, cancel := chromedp.NewExecAllocator(context.Background(), append(chromedp.DefaultExecAllocatorOptions[:],
 			chromedp.Flag("disable-dev-shm-usage", true),                  // Avoid shared memory issues on NAS devices
@@ -104,7 +111,17 @@ func main() {
 			chromedp.Flag("max_old_space_size", "512"),                    // Limit V8 memory usage to 512MB
 			chromedp.Flag("single-process", true),                         // Run in single process mode to reduce overhead
 		)...)
-		defer cancel()
+		defer func() {
+			cancel()     // Ensure Chrome process is terminated
+			runtime.GC() // Force garbage collection
+
+			// Log memory usage after cleanup
+			runtime.ReadMemStats(&m)
+			log.Printf("Memory after cleanup: Alloc=%d MiB, Sys=%d MiB", m.Alloc/1024/1024, m.Sys/1024/1024)
+
+			// FIXME: Force container restart to ensure clean state
+			os.Exit(1)
+		}()
 
 		ctx, cancel := chromedp.NewContext(allocCtx)
 		defer cancel()
@@ -117,8 +134,10 @@ func main() {
 		url := "http://localhost:" + *port + "/"
 		if err := chromedp.Run(ctx,
 			chromedp.Navigate(url),
+			chromedp.WaitReady("body"),
+			chromedp.Sleep(1*time.Second), // Wait for page to settle
 			chromedp.EmulateViewport(600, 800, chromedp.EmulateScale(2.0)),
-			chromedp.CaptureScreenshot(&pngBuf),
+			chromedp.FullScreenshot(&pngBuf, 100),
 		); err != nil {
 			c.String(http.StatusInternalServerError, "Failed to render image: %v", err)
 			return
@@ -134,12 +153,17 @@ func main() {
 		gray := effect.Grayscale(resized)
 
 		c.Header("Content-Type", "image/png")
-		var buf bytes.Buffer
-		if err := png.Encode(&buf, gray); err != nil {
-			c.String(http.StatusInternalServerError, "Failed to encode PNG: %v", err)
-			return
-		}
-		c.Writer.Write(buf.Bytes())
+
+		// Stream PNG directly to response using a pipe
+		pr, pw := io.Pipe()
+		go func() {
+			defer pw.Close()
+			if err := png.Encode(pw, gray); err != nil {
+				log.Printf("Failed to encode PNG: %v", err)
+			}
+		}()
+
+		c.DataFromReader(http.StatusOK, -1, "image/png", pr, nil)
 
 		log.Println("Image generated with bild pipeline")
 	})

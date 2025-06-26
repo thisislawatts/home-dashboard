@@ -10,8 +10,8 @@
         padding: 0;
     }
     html, body {
-      width: 800px;
-      height: 600px;
+      width: 600px;
+      height: 800px;
       margin: 0;
       padding: 0;
       background: #fff;
@@ -20,46 +20,52 @@
       font-size: 14px;
       -webkit-font-smoothing: none;
       -webkit-text-stroke: 0.2px;
+      border: 1px solid #000;
     }
     .container {
       display: flex;
       flex-direction: row;
-      width: 100%;
-      height: 100%;
+      width: 800px;
+      height: 600px;
       box-sizing: border-box;
-      padding: 16px;
-      gap: 16px;
+      padding: 0;
+      gap: 0;
 
-      transform: translateX(284px) translateY(-316px) rotate(90deg);
+      transform: translateX(300px) translateY(-301px) rotate(90deg);
       transform-origin: 0;
     }
     .panel {
       background: #fff;
-      border: 2px solid #000;
-      border-radius: 8px;
       padding: 0;
-      flex: 1 1 0;
       display: flex;
       flex-direction: column;
       justify-content: flex-start;
       min-width: 0;
       min-height: 0;
     }
-    .panel h2 {
+    .panel header {
       margin-top: 0;
-      font-size: 1.2em;
       border-bottom: 2px solid #000;
       padding: .5rem 1rem;
       font-weight: normal;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
+
+    .panel header h2 {
+      font-size: 1.2em;
+    }
+
     ul.todo-list {
       list-style: none;
     }
     ul.todo-list li {
       margin-bottom: 0;
-      padding: .25rem .5rem;
+      padding: .25rem .75rem;
       line-height: 2;
       border-bottom: 1px solid #000;
+      font-size: 16px;
     }
     .energy-table, .weather-table {
       width: 100%;
@@ -86,13 +92,19 @@
     .weather-details {
       font-size: 0.95em;
     }
+
+    .br {
+      border-right: 1px solid #000;
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <!-- Todo List Panel -->
-    <div class="panel" style="flex: 1.2 1 0;">
-      <h2>Todo List</h2>
+    <div class="panel br" style="flex: 1.2 1 0;">
+      <header>
+        <h2>Todo List</h2>
+      </header>
       <ul class="todo-list">
         {{range .FilteredTasks}}
           <li>{{.Content}}</li>
@@ -106,42 +118,42 @@
     <div style="display: flex; flex-direction: column; flex: 1 1 0; gap: 16px; min-width: 0; min-height: 0;">
       <!-- Energy Panel -->
       <div class="panel">
-        <h2>Energy Usage (24h)</h2>
+        <header>
+          <h2>Energy
+          </h2>
+          <div class="comparison">Compared to previous 24h period.</div>
+        </header>
         <table class="energy-table">
           <tr>
             <th></th>
-            <th>Unit</th>
             <th>Usage</th>
             <th>Cost</th>
-            <th>Prev 24h</th>
           </tr>
           <tr>
             <td>Electricity</td>
-            <td>kWh</td>
-            <td>9.0</td>
+            <td>📉 9.0kWh</td>
             <td>€3.27</td>
-            <td class="comparison">📉</td>
+            
           </tr>
           <tr>
             <td>Gas</td>
-            <td>m³</td>
-            <td>0.5</td>
+            <td>📉 0.5m³</td>
             <td>€0.72</td>
-            <td class="comparison">📉</td>
           </tr>
         </table>
-        <div class="comparison">Compared to previous 24h period.</div>
       </div>
       <!-- Weather Panel -->
       <div class="panel">
-        <h2>Weather (Next 24h)</h2>
+        <header>
+          <h2>Weather (Next 24h)</h2>
+        </header>
         <div class="weather-forecast">
           <strong>Forecast:</strong> Partly cloudy, light breeze<br>
           <strong>High/Low:</strong> 19°C / 11°C<br>
         </div>
         <table class="weather-table">
           <tr><th>Humidity</th><td>62%</td></tr>
-          <tr><th>Pollen</th><td>Moderate</td></tr>
+          <tr><th>Pollen</th><td>High</td></tr>
           <tr><th>Pollution</th><td>Low</td></tr>
         </table>
       </div>

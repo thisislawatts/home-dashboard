@@ -1,4 +1,4 @@
-module homedashboard
+module github.com/thisislawatts/home-dashboard
 
 go 1.23
 

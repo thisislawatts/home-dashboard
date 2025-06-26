@@ -5,9 +5,9 @@ go 1.23
 toolchain go1.24.4
 
 require (
+	github.com/anthonynsimon/bild v0.14.0
 	github.com/chromedp/chromedp v0.13.7
 	github.com/gin-gonic/gin v1.10.1
-	github.com/h2non/bimg v1.1.5
 	github.com/joho/godotenv v1.5.1
 )
 
@@ -41,7 +41,7 @@ require (
 	golang.org/x/crypto v0.23.0 // indirect
 	golang.org/x/net v0.25.0 // indirect
 	golang.org/x/sys v0.29.0 // indirect
-	golang.org/x/text v0.15.0 // indirect
+	golang.org/x/text v0.16.0 // indirect
 	google.golang.org/protobuf v1.34.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

@@ -1,8 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"flag"
+	"image"
+	"image/color"
+	"image/png"
 	"log"
 	"net/http"
 	"os"
@@ -94,32 +98,48 @@ func main() {
 		url := "http://localhost:" + *port + "/"
 		if err := chromedp.Run(ctx,
 			chromedp.Navigate(url),
-			chromedp.EmulateViewport(600, 800, chromedp.EmulateScale(2.0)),
+			chromedp.EmulateViewport(600, 800),
 			chromedp.CaptureScreenshot(&pngBuf),
 		); err != nil {
 			c.String(http.StatusInternalServerError, "Failed to render image: %v", err)
 			return
 		}
 
-		resized, err := bimg.NewImage(pngBuf).Resize(600, 800)
-		if err != nil {
-			c.String(http.StatusInternalServerError, "Failed to resize image: %v", err)
-			return
-		}
-
-		gray, err := bimg.NewImage(resized).Colourspace(bimg.InterpretationBW)
+		gray, err := bimg.NewImage(pngBuf).Colourspace(bimg.InterpretationBW)
 		if err != nil {
 			c.String(http.StatusInternalServerError, "Failed to grayscale image: %v", err)
 			return
 		}
 
-		c.Header("Content-Type", "image/png")
-		c.Writer.Write(gray)
+		img, _, err := image.Decode(bytes.NewReader(gray))
+		if err != nil {
+			c.String(http.StatusInternalServerError, "Failed to decode grayscale image: %v", err)
+			return
+		}
 
-		// At the end of your handler:
+		var palette color.Palette
+		for i := 0; i < 256; i++ {
+			palette = append(palette, color.Gray{uint8(i)})
+		}
+
+		palettedImg := image.NewPaletted(img.Bounds(), palette)
+		for y := img.Bounds().Min.Y; y < img.Bounds().Max.Y; y++ {
+			for x := img.Bounds().Min.X; x < img.Bounds().Max.X; x++ {
+				c := color.GrayModel.Convert(img.At(x, y)).(color.Gray)
+				palettedImg.SetColorIndex(x, y, uint8(c.Y))
+			}
+		}
+
+		c.Header("Content-Type", "image/png")
+		var buf bytes.Buffer
+		if err := png.Encode(&buf, palettedImg); err != nil {
+			c.String(http.StatusInternalServerError, "Failed to encode paletted PNG: %v", err)
+			return
+		}
+		c.Writer.Write(buf.Bytes())
+
 		log.Println("Dropping cache")
 		bimg.VipsCacheDropAll()
-
 	})
 
 	r.Run(":" + *port)

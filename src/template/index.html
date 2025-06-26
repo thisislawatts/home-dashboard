@@ -112,6 +112,18 @@
         {{range .CompletedToday}}
           <li style="text-decoration: line-through;">{{.Content}}</li>
         {{end}}
+        {{range .FilteredTasks}}
+          <li>{{.Content}}</li>
+        {{end}}
+        {{range .CompletedToday}}
+          <li style="text-decoration: line-through;">{{.Content}}</li>
+        {{end}}
+        {{range .FilteredTasks}}
+          <li>{{.Content}}</li>
+        {{end}}
+        {{range .CompletedToday}}
+          <li style="text-decoration: line-through;">{{.Content}}</li>
+        {{end}}
       </ul>
     </div>
     <!-- Right Side: Stack Energy + Weather Panels -->

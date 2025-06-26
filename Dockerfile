@@ -1,47 +1,43 @@
 # ---- Build stage ----
-FROM golang:1.24-alpine AS builder
+FROM golang:1.24 AS builder
 
 WORKDIR /app
 
-# Install git (for go mod) and build dependencies
-RUN apk add --no-cache git
+# Install build dependencies and libvips-dev for CGO
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        git \
+        build-essential \
+        libvips-dev && \
+    rm -rf /var/lib/apt/lists/*
 
-# Copy go mod and sum files
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy the rest of the source code
 COPY . .
 
-# Build the Go binary
-RUN CGO_ENABLED=0 GOOS=linux go build -o homedashboard main.go
+# Build with CGO enabled and strip debug info
+RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o homedashboard main.go
 
 # ---- Final stage ----
-FROM alpine:3.19
+FROM debian:bookworm-slim
+
 
 WORKDIR /app
 
-# Install Chromium and required dependencies
-RUN apk add --no-cache \
-    chromium \
-    nss \
-    freetype \
-    harfbuzz \
-    ttf-freefont \
-    ca-certificates
+# Install runtime dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        libvips \
+        chromium \
+        ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
 
-# Copy the Go binary and static files
 COPY --from=builder /app/homedashboard .
 COPY src/ ./src/
-COPY dashboard.html ./
-COPY dist/ ./dist/
-COPY wrangler.jsonc ./
 
-# Expose the default port
 EXPOSE 8080
 
-# Set environment variables for chromedp to use Chromium
-ENV CHROME_PATH=/usr/bin/chromium-browser
+ENV CHROME_PATH=/usr/bin/chromium
 
-# Run the Go binary
 ENTRYPOINT ["./homedashboard"] 

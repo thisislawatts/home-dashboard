@@ -110,6 +110,7 @@ func main() {
 			chromedp.Flag("memory-pressure-off", true),                    // Disable memory pressure handling
 			chromedp.Flag("max_old_space_size", "512"),                    // Limit V8 memory usage to 512MB
 			chromedp.Flag("single-process", true),                         // Run in single process mode to reduce overhead
+			chromedp.Flag("disable-javascript", true),                     // Disable JavaScript execution
 		)...)
 		defer func() {
 			cancel()     // Ensure Chrome process is terminated
@@ -118,9 +119,6 @@ func main() {
 			// Log memory usage after cleanup
 			runtime.ReadMemStats(&m)
 			log.Printf("Memory after cleanup: Alloc=%d MiB, Sys=%d MiB", m.Alloc/1024/1024, m.Sys/1024/1024)
-
-			// FIXME: Force container restart to ensure clean state
-			os.Exit(1)
 		}()
 
 		ctx, cancel := chromedp.NewContext(allocCtx)
@@ -135,7 +133,7 @@ func main() {
 		if err := chromedp.Run(ctx,
 			chromedp.Navigate(url),
 			chromedp.WaitReady("body"),
-			chromedp.Sleep(1*time.Second), // Wait for page to settle
+			chromedp.Sleep(2*time.Second), // Longer wait for slower Synology CPU
 			chromedp.EmulateViewport(600, 800, chromedp.EmulateScale(2.0)),
 			chromedp.FullScreenshot(&pngBuf, 100),
 		); err != nil {

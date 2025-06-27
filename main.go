@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"os"
 	"runtime"
-	"text/template"
 	"time"
 
 	"github.com/thisislawatts/home-dashboard/todoist"
@@ -50,18 +49,8 @@ func main() {
 	}
 
 	r := gin.Default()
+	r.LoadHTMLFiles("src/template/index.html")
 	r.GET("/", func(c *gin.Context) {
-		tmplBytes, err := os.ReadFile(templateFilePath)
-		if err != nil {
-			log.Fatalf("Failed to read template: %v", err)
-			os.Exit(1)
-		}
-		tmpl, err := template.New("index").Parse(string(tmplBytes))
-		if err != nil {
-			log.Fatalf("Failed to parse template: %v", err)
-			os.Exit(1)
-		}
-
 		todoistClient := todoist.NewTodoistClient(token)
 
 		filterQuery := "today & #Home 🏡"
@@ -84,10 +73,7 @@ func main() {
 			CompletedToday: completedToday,
 		}
 
-		c.Header("Content-Type", "text/html; charset=utf-8")
-		if err := tmpl.Execute(c.Writer, data); err != nil {
-			c.String(http.StatusInternalServerError, "Failed to execute template: %v", err)
-		}
+		c.HTML(http.StatusOK, "index.html", data)
 	})
 
 	r.GET("/image", func(c *gin.Context) {

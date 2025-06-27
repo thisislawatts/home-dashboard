@@ -5,11 +5,11 @@ import (
 	"context"
 	"flag"
 	"image"
-	"image/color"
 	"image/png"
 	"log"
 	"net/http"
 	"os"
+	"runtime"
 	"text/template"
 	"time"
 
@@ -91,55 +91,73 @@ func main() {
 	})
 
 	r.GET("/image", func(c *gin.Context) {
-		ctx, cancel := chromedp.NewContext(context.Background())
+		// Chrome flags optimized for Synology NAS
+		allocCtx, cancel := chromedp.NewExecAllocator(context.Background(), append(chromedp.DefaultExecAllocatorOptions[:],
+			chromedp.Flag("disable-dev-shm-usage", true),                  // Avoid shared memory issues on NAS devices
+			chromedp.Flag("no-sandbox", true),                             // Disable Chrome sandbox to reduce resource overhead
+			chromedp.Flag("disable-gpu", true),                            // Force software rendering (more stable on NAS)
+			chromedp.Flag("disable-software-rasterizer", false),           // Enable software rasterizer for better compatibility
+			chromedp.Flag("disable-background-timer-throttling", true),    // Prevent background throttling
+			chromedp.Flag("disable-backgrounding-occluded-windows", true), // Keep windows active
+			chromedp.Flag("disable-renderer-backgrounding", true),         // Prevent renderer from going to background
+			chromedp.Flag("memory-pressure-off", true),                    // Disable memory pressure handling
+			chromedp.Flag("max_old_space_size", "512"),                    // Limit V8 memory usage to 512MB
+			chromedp.Flag("single-process", true),                         // Run in single process mode to reduce overhead
+			chromedp.Flag("disable-javascript", true),                     // Disable JavaScript execution
+		)...)
+		defer func() {
+			cancel()     // Ensure Chrome process is terminated
+			runtime.GC() // Force garbage collection
+			log.Println("Cache dropped")
+			bimg.VipsCacheDropAll()
+		}()
+
+		ctx, cancel := chromedp.NewContext(allocCtx)
+		defer cancel()
+
+		// Add timeout for Synology resource constraints
+		ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 
 		var pngBuf []byte
 		url := "http://localhost:" + *port + "/"
 		if err := chromedp.Run(ctx,
 			chromedp.Navigate(url),
-			chromedp.EmulateViewport(600, 800),
-			chromedp.CaptureScreenshot(&pngBuf),
+			chromedp.WaitReady("body"),
+			chromedp.Sleep(2*time.Second), // Longer wait for slower Synology CPU
+			chromedp.EmulateViewport(600, 800, chromedp.EmulateScale(2.0)),
+			chromedp.FullScreenshot(&pngBuf, 100),
 		); err != nil {
 			c.String(http.StatusInternalServerError, "Failed to render image: %v", err)
 			return
 		}
 
-		gray, err := bimg.NewImage(pngBuf).Colourspace(bimg.InterpretationBW)
+		// resize the image to 600x800
+		resized, err := bimg.NewImage(pngBuf).Resize(600, 800)
+		if err != nil {
+			c.String(http.StatusInternalServerError, "Failed to resize image: %v", err)
+			return
+		}
+
+		gray, err := bimg.NewImage(resized).Colourspace(bimg.InterpretationBW)
 		if err != nil {
 			c.String(http.StatusInternalServerError, "Failed to grayscale image: %v", err)
 			return
 		}
 
-		img, _, err := image.Decode(bytes.NewReader(gray))
+		processedImg, _, err := image.Decode(bytes.NewReader(gray))
 		if err != nil {
 			c.String(http.StatusInternalServerError, "Failed to decode grayscale image: %v", err)
 			return
 		}
 
-		var palette color.Palette
-		for i := 0; i < 256; i++ {
-			palette = append(palette, color.Gray{uint8(i)})
-		}
-
-		palettedImg := image.NewPaletted(img.Bounds(), palette)
-		for y := img.Bounds().Min.Y; y < img.Bounds().Max.Y; y++ {
-			for x := img.Bounds().Min.X; x < img.Bounds().Max.X; x++ {
-				c := color.GrayModel.Convert(img.At(x, y)).(color.Gray)
-				palettedImg.SetColorIndex(x, y, uint8(c.Y))
-			}
-		}
-
 		c.Header("Content-Type", "image/png")
 		var buf bytes.Buffer
-		if err := png.Encode(&buf, palettedImg); err != nil {
+		if err := png.Encode(&buf, processedImg); err != nil {
 			c.String(http.StatusInternalServerError, "Failed to encode paletted PNG: %v", err)
 			return
 		}
 		c.Writer.Write(buf.Bytes())
-
-		log.Println("Dropping cache")
-		bimg.VipsCacheDropAll()
 	})
 
 	r.Run(":" + *port)

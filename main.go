@@ -53,7 +53,7 @@ func main() {
 	r.GET("/", func(c *gin.Context) {
 		todoistClient := todoist.NewTodoistClient(token)
 
-		filterQuery := "today & #Home 🏡"
+		filterQuery := "7 days & #Home 🏡"
 		filteredTasks, err := todoistClient.GetFilteredTasks(filterQuery)
 		if err != nil {
 			c.String(http.StatusInternalServerError, "Failed to get filtered tasks: %v", err)
